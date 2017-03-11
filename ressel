@@ -1,0 +1,302 @@
+clear;
+
+nlayer=2;                   %壳层数
+norder=1;                   %贝塞尔函数阶数
+printorder=norder+1;   
+nembody=sqrt(1);            %空气折射率
+
+wl=[400e-9:1e-9:2000e-9];  %这里是用国际制的长度单位，注意后面乘1e9
+landa=wl/nembody;          %波长
+nlanda=size(landa);
+
+eps_ag=load('C:\Users\ZWB\Documents\fll\Ag_AU\Ag_AU\Johnson_ag.txt');      % Ag-Js.DAT Ag_drude.txt %银的介电常数  
+re_ag=interp1(1240./eps_ag(:,1),eps_ag(:,2),wl*1e9);
+im_ag=interp1(1240./eps_ag(:,1),eps_ag(:,3),wl*1e9);        %前两项是找出函数关系，利用的是导入数据里面的第一列和第二列的关系，把第一项用1240除一下就变成纳米啦，第三项直接带人波长，这里变成了纳米
+
+
+eps_au=load('C:\Users\ZWB\Documents\fll\Ag_AU\Ag_AU\Johnson_Au.txt');    %金的折射率  Au:Johnson_Au.txt
+re_au=interp1(1240./eps_au(:,1),eps_au(:,2),wl*1e9);
+im_au=interp1(1240./eps_au(:,1),eps_au(:,3),wl*1e9);
+
+
+nthick=zeros(1,nlayer+1);           %厚度
+nthick(1)=(45)*1e-9;
+nthick(2)=1.5*1e-9;
+nthick(3)=(14.5)*1e-9;
+
+
+mu=ones(1,nlayer+2);               %磁导率
+mu(1)=1;
+mu(2)=1;
+mu(3)=1;
+
+
+nvar=zeros(1,nlayer+1);
+n=ones(1,nlayer+2);                            %折射率
+equmatrixa=zeros(2*(nlayer+1));              %方程组矩阵[an bn cn dn 壳层系数]
+equmatrixb=zeros(2*(nlayer+1)); 
+Ua=zeros(2*(nlayer+1));
+Va=zeros(2*(nlayer+1));
+Ub=zeros(2*(nlayer+1));
+Vb=zeros(2*(nlayer+1));
+equcolvectora=zeros(2*(nlayer+1),1);             %方程组等式右侧列向量
+equcolvectorb=zeros(2*(nlayer+1),1);
+solution=zeros(2,norder,nlanda(2));      %行列式解法
+%solution1=zeros(4*(nlayer+1),norder,nlanda(2));     %matlab直接求解
+%solution2=zeros(4*(nlayer+1),norder,nlanda(2));     %LU分解（Gauss消去分解）
+%solution3=zeros(4*(nlayer+1),norder,nlanda(2));     %QR分解
+sca_crosssection=zeros(norder+1,nlanda(2),2);
+ext_crosssection=zeros(norder+1,nlanda(2),2);
+an=zeros(norder+1,nlanda(2));
+Uavalue=zeros(norder+1,nlanda(2));
+Vavalue=zeros(norder+1,nlanda(2));
+Ubvalue=zeros(norder+1,nlanda(2));
+Vbvalue=zeros(norder+1,nlanda(2));
+sca_back=zeros(nlanda(2),1);
+sca_fore=zeros(nlanda(2),1);
+
+for wlnode=1:nlanda(2)
+    %n(1)=sqrt(2.04); 
+    n(1)=1.59;
+    n(1)=1.5;
+    %n(3)=1.5;
+    %n(3)=3.42;
+    eps_mole=2.25+ 0.03*1.79^2/complex(1.79^2-(1240e-9/landa(wlnode))^2, -0.052*1240e-9/landa(wlnode));
+    %n(3)=sqrt(re_mole(landa(wlnode))+1i*im_mole(wlnode));
+    %n(2)=sqrt(re_mole(wlnode));
+    %n(2)=sqrt(1.4+freqp^2/(freq0^2-(3e8/wl(wlnode))^2-1i*gama*3e8/wl(wlnode)));
+    n(2)=sqrt(eps_mole);
+    n(3)=sqrt(re_ag(wlnode)+1i*im_ag(wlnode));
+    %n(3)=1;
+    %n(3)=sqrt(re_ag(wlnode));
+    %n(3)=re_au(wlnode)+1i*im_au(wlnode);
+    %n(2)=sqrt(9.5-(80.08102144/((1239.84/(wl(wlnode)*1e9))^2+1i*0.06909*(1239.84/(wl(wlnode)*1e9)))));
+    %n(3)=sqrt(1-9^2/(1240e-9/wl(wlnode))^2);
+    %n(3)=1;
+    %nembody=sqrt(re_ag(wlnode)+1i*im_ag(wlnode));
+    n(nlayer+2)=nembody;
+    
+
+    m=zeros(1,nlayer+1);
+    for i0=1:nlayer+1
+        m(i0)=n(i0)/n(nlayer+2);                      %相对折射率
+    end
+    r=0;
+for i2=1:nlayer+1
+    r=r+nthick(i2);
+    nvar(i2)=2*pi/landa(wlnode)*r;           %自变量x=kr
+end
+for i3=1:norder
+    if nlayer>=1
+    for i1=1:nlayer+1
+        if i1>1
+            if i1<nlayer+1
+                equmatrixa(2*(i1-1)+1,2*(i1-1)+1)=m(i1+1)*drbessel1(i3,m(i1)*nvar(i1));
+                equmatrixa(2*(i1-1)+1,2*(i1-1)+2)=-m(i1+1)*drbessel2(i3,m(i1)*nvar(i1));
+                equmatrixa(2*(i1-1)+1,2*(i1-1)+3)=-m(i1)*drbessel1(i3,m(i1+1)*nvar(i1));
+                equmatrixa(2*(i1-1)+1,2*(i1-1)+4)=m(i1)*drbessel2(i3,m(i1+1)*nvar(i1));
+                equmatrixa(2*(i1-1)+2,2*(i1-1)+1)=mu(i1+1)*rbessel1(i3,m(i1)*nvar(i1));
+                equmatrixa(2*(i1-1)+2,2*(i1-1)+2)=-mu(i1+1)*rbessel2(i3,m(i1)*nvar(i1));
+                equmatrixa(2*(i1-1)+2,2*(i1-1)+3)=-mu(i1)*rbessel1(i3,m(i1+1)*nvar(i1));
+                equmatrixa(2*(i1-1)+2,2*(i1-1)+4)=mu(i1)*rbessel2(i3,m(i1+1)*nvar(i1));
+                
+                equmatrixb(2*(i1-1)+1,2*(i1-1)+1)=m(i1+1)*rbessel1(i3,m(i1)*nvar(i1));
+                equmatrixb(2*(i1-1)+1,2*(i1-1)+2)=-m(i1+1)*rbessel2(i3,m(i1)*nvar(i1));
+                equmatrixb(2*(i1-1)+1,2*(i1-1)+3)=-m(i1)*rbessel1(i3,m(i1+1)*nvar(i1));
+                equmatrixb(2*(i1-1)+1,2*(i1-1)+4)=m(i1)*rbessel2(i3,m(i1+1)*nvar(i1));
+                equmatrixb(2*(i1-1)+2,2*(i1-1)+1)=mu(i1+1)*drbessel1(i3,m(i1)*nvar(i1));
+                equmatrixb(2*(i1-1)+2,2*(i1-1)+2)=-mu(i1+1)*drbessel2(i3,m(i1)*nvar(i1));
+                equmatrixb(2*(i1-1)+2,2*(i1-1)+3)=-mu(i1)*drbessel1(i3,m(i1+1)*nvar(i1));
+                equmatrixb(2*(i1-1)+2,2*(i1-1)+4)=mu(i1)*drbessel2(i3,m(i1+1)*nvar(i1));           
+            else
+                equmatrixa(2*(i1-1)+1,1)=m(i1)*drbessel3(i3,1,nvar(i1));
+                equmatrixa(2*(i1-1)+1,2*(i1-1)+1)=drbessel1(i3,m(i1)*nvar(i1));
+                equmatrixa(2*(i1-1)+1,2*(i1-1)+2)=-drbessel2(i3,m(i1)*nvar(i1));
+                equmatrixa(2*(i1-1)+2,1)=mu(i1)*rbessel3(i3,1,nvar(i1));
+                equmatrixa(2*(i1-1)+2,2*(i1-1)+1)=mu(i1+1)*rbessel1(i3,m(i1)*nvar(i1));
+                equmatrixa(2*(i1-1)+2,2*(i1-1)+2)=-mu(i1+1)*rbessel2(i3,m(i1)*nvar(i1));
+                
+                equmatrixb(2*(i1-1)+1,1)=m(i1)*rbessel3(i3,1,nvar(i1));
+                equmatrixb(2*(i1-1)+1,2*(i1-1)+1)=rbessel1(i3,m(i1)*nvar(i1));
+                equmatrixb(2*(i1-1)+1,2*(i1-1)+2)=-rbessel2(i3,m(i1)*nvar(i1));
+                equmatrixb(2*(i1-1)+2,1)=mu(i1)*drbessel3(i3,1,nvar(i1));
+                equmatrixb(2*(i1-1)+2,2*(i1-1)+1)=mu(i1+1)*drbessel1(i3,m(i1)*nvar(i1));
+                equmatrixb(2*(i1-1)+2,2*(i1-1)+2)=-mu(i1+1)*drbessel2(i3,m(i1)*nvar(i1));
+            end
+        else
+            equmatrixa(1,2)=m(2)*drbessel1(i3,m(1)*nvar(1)); 
+            equmatrixa(1,3)=-m(1)*drbessel1(i3,m(2)*nvar(1)); 
+            equmatrixa(1,4)=m(1)*drbessel2(i3,m(2)*nvar(1));
+            equmatrixa(2,2)=mu(2)*rbessel1(i3,m(1)*nvar(1)); 
+            equmatrixa(2,3)=-mu(1)*rbessel1(i3,m(2)*nvar(1)); 
+            equmatrixa(2,4)=mu(1)*rbessel2(i3,m(2)*nvar(1));
+            
+            equmatrixb(1,2)=m(2)*rbessel1(i3,m(1)*nvar(1));
+            equmatrixb(1,3)=-m(1)*rbessel1(i3,m(2)*nvar(1)); 
+            equmatrixb(1,4)=m(1)*rbessel2(i3,m(2)*nvar(1)); 
+            equmatrixb(2,2)=mu(2)*drbessel1(i3,m(1)*nvar(1)); 
+            equmatrixb(2,3)=-mu(1)*drbessel1(i3,m(2)*nvar(1)); 
+            equmatrixb(2,4)=mu(1)*drbessel2(i3,m(2)*nvar(1)); 
+        end
+    end
+    else
+        equmatrixa(1,1)=m(1)*drbessel3(i3,1,nvar(1));
+        equmatrixa(1,2)=drbessel1(i3,m(1)*nvar(1));
+        equmatrixb(1,1)=m(1)*rbessel3(i3,1,nvar(1));
+        equmatrixb(1,2)=rbessel1(i3,m(1)*nvar(1));
+        equmatrixa(2,1)=mu(1)*rbessel3(i3,1,nvar(1));
+        equmatrixa(2,2)=mu(2)*rbessel1(i3,m(1)*nvar(1));
+        equmatrixb(2,1)=mu(1)*drbessel3(i3,1,nvar(1));
+        equmatrixb(2,2)=mu(2)*drbessel1(i3,m(1)*nvar(1));
+    end
+    equcolvectora(2*nlayer+1,1)=m(nlayer+1)*drbessel1(i3,nvar(nlayer+1));
+    equcolvectora(2*nlayer+2,1)=mu(nlayer+1)*rbessel1(i3,nvar(nlayer+1));
+    
+    equcolvectorb(2*nlayer+1,1)=m(nlayer+1)*rbessel1(i3,nvar(nlayer+1));
+    equcolvectorb(2*nlayer+2,1)=mu(nlayer+1)*drbessel1(i3,nvar(nlayer+1));
+    
+    Ua=equmatrixa;
+    Ua(2*nlayer+1,1)=m(nlayer+1)*drbessel1(i3,nvar(nlayer+1));
+    Ua(2*nlayer+2,1)=mu(nlayer+1)*rbessel1(i3,nvar(nlayer+1));
+    Va=equmatrixa;
+    Va(2*nlayer+1,1)=m(nlayer+1)*drbessel2(i3,nvar(nlayer+1));
+    Va(2*nlayer+2,1)=mu(nlayer+1)*rbessel2(i3,nvar(nlayer+1));
+    Ub=equmatrixb;
+    Ub(2*nlayer+1,1)=m(nlayer+1)*rbessel1(i3,nvar(nlayer+1));
+    Ub(2*nlayer+2,1)=mu(nlayer+1)*drbessel1(i3,nvar(nlayer+1));
+    Vb=equmatrixb;
+    Ub(2*nlayer+1,1)=m(nlayer+1)*rbessel2(i3,nvar(nlayer+1));
+    Ub(2*nlayer+2,1)=mu(nlayer+1)*drbessel2(i3,nvar(nlayer+1));
+    
+    t=equmatrixa;
+    det0=det(t);
+    t(:,1)=equcolvectora;
+    det1=det(t);
+    solution(1,i3,wlnode)=det1/det0;       %每一阶为列向量
+    
+    %det1=det(Ua);
+    %det2=det(Va);
+    %solution(1,i3,wlnode)=det1/(det1-1i*det2);
+    %Uavalue(i3,wlnode)=det1;
+    %Vavalue(i3,wlnode)=det2;
+    %an(i3,wlnode)=solution(1,i3,wlnode);
+    t=equmatrixb;
+    det0=det(t);
+    t(:,1)=equcolvectorb;
+    det1=det(t);
+    solution(2,i3,wlnode)=det1/det0;       %每一阶为列向量
+    
+    %det1=det(Ub);
+    %det2=det(Vb);
+    %solution(2,i3,wlnode)=det1/(det1-1i*det2);
+    %Ubvalue(i3,wlnode)=det1;
+    %Vbvalue(i3,wlnode)=det2;
+    %solution1(:,i3,wlnode)=sym(equmatrix)\sym(equcolvector);      %每一阶为列向量
+    %[L,U]=lu(equmatrix);
+    %solution2(:,i3,wlnode)=sym(U)\(sym(L)\sym(equcolvector));
+    %[Q,C]=qr(equmatrix);
+    %solution3(:,i3,wlnode)=sym(C)\sym((Q)\equcolvector);
+    
+end
+
+for i3=1:norder
+    sca_crosssection(i3,wlnode,1)=(landa(wlnode)^2)/2/pi*(2*i3+1)*(abs(solution(1,i3,wlnode))^2);
+    sca_crosssection(i3,wlnode,2)=(landa(wlnode)^2)/2/pi*(2*i3+1)*(abs(solution(2,i3,wlnode))^2);
+    ext_crosssection(i3,wlnode,1)=(landa(wlnode)^2)/2/pi*(2*i3+1)*real(solution(1,i3,wlnode));
+    ext_crosssection(i3,wlnode,2)=(landa(wlnode)^2)/2/pi*(2*i3+1)*real(solution(2,i3,wlnode));
+    sca_crosssection(norder+1,wlnode,:)=sca_crosssection(i3,wlnode,1)+sca_crosssection(i3,wlnode,2)+sca_crosssection(norder+1,wlnode,:);
+    ext_crosssection(norder+1,wlnode,:)=ext_crosssection(i3,wlnode,1)+ext_crosssection(i3,wlnode,2)+ext_crosssection(norder+1,wlnode,:);
+    sca_back(wlnode)=(landa(wlnode)/2/pi)*(2*i3+1)*(-1)^i3*(solution(1,i3,wlnode)-solution(2,i3,wlnode))+sca_back(wlnode);
+    sca_fore(wlnode)=(landa(wlnode)/2/pi)*(2*i3+1)*(solution(1,i3,wlnode)+solution(2,i3,wlnode))+sca_back(wlnode);
+end
+%for i3=1:norder
+%    sca_crosssection(i3,wlnode)=(landa(wlnode)^2)/2/pi*(2*i3+1)*(abs(solution(1,i3,wlnode))^2+abs(solution(2,i3,wlnode))^2)*real(-1i*conj(rbessel3(i3,1,nvar(nlayer+1)))*drbessel3(i3,1,nvar(nlayer+1)));
+%    ext_crosssection(i3,wlnode)=(landa(wlnode)^2)/2/pi*(2*i3+1)*real(solution(1,i3,wlnode)+solution(2,i3,wlnode));
+%    sca_crosssection(norder+1,wlnode)=sca_crosssection(i3,wlnode)+sca_crosssection(norder+1,wlnode);
+%    ext_crosssection(norder+1,wlnode)=ext_crosssection(i3,wlnode)+ext_crosssection(norder+1,wlnode);
+%end
+%for i=1:norder
+%    sca_crosssection(i,wlnode)=(landa^2)/2/pi*(2*i+1)*(abs(solution2(1,i,wlnode))^2+abs(solution2(2,i,wlnode))^2);
+%    ext_crosssection(i,wlnode)=(landa^2)/2/pi*(2*i+1)*real(solution2(1,i,wlnode)+solution2(2,i,wlnode));
+%    sca_crosssection(norder+1,wlnode)=sca_crosssection(i,wlnode)+sca_crosssection(norder+1,wlnode);
+%    ext_crosssection(norder+1,wlnode)=ext_crosssection(i,wlnode)+ext_crosssection(norder+1,wlnode);
+%end
+end
+scattering=sca_crosssection/(pi*r^2);
+extinction=ext_crosssection/(pi*r^2);
+back_sca=pi*abs(sca_back).^2/(pi*r^2);
+fore_sca=pi*abs(sca_fore).^2/(pi*r^2);
+absorption=extinction-scattering;
+
+sca=zeros(nlanda(2),1);
+ext=zeros(nlanda(2),1);
+abs=zeros(nlanda(2),1);
+for i=1:nlanda(2)
+        sca(i)=scattering(printorder,i,1);
+        ext(i)=extinction(printorder,i,1);
+        abs(i)=absorption(printorder,i,1);
+end
+
+figure(5)
+plot(wl,sca)
+title('总散射');
+grid on
+figure(3)
+plot(wl,abs)
+title('总吸收');
+grid on
+figure(2)
+plot(wl,ext)
+title('总消光');
+grid on
+%figure(1)
+%plot(wl,back_sca);
+%title('背散射');
+%grid on
+%figure(6)
+%plot(wl,fore_sca);
+%title('前散射');
+%grid on
+%figure(7)
+%plot(wl,real(an(1,:)),'g',wl,imag(an(1,:)),'r');
+%title('an')
+%grid on
+%figure(8)
+%plot(wl,real(Uavalue(1,:)),'g',wl,imag(Uavalue(1,:)),'r');
+%title('Ua')
+%grid on
+%figure(9)
+%plot(wl,real(Vavalue(1,:)),'g',wl,imag(Vavalue(1,:)),'r');
+%title('Va')
+%grid on
+%figure(10)
+%plot(wl,real(Uavalue(1,:)./Vavalue(1,:)),'g',wl,imag(Uavalue(1,:)./Vavalue(1,:)),'r');
+%title('U/V')
+%grid on
+%figure(11)
+%plot(wl,conj(Uavalue(1,:)).*Uavalue(1,:),'g',wl,conj(Vavalue(1,:)).*Vavalue(1,:),'r');
+%title('mode U V')
+%grid on
+output=(1e9*landa'*nembody);
+for i4=1:2*(norder+1)
+    if i4<norder+2
+        output=cat(2,output,extinction(i4,:,1)',scattering(i4,:,1)',absorption(i4,:,1)');
+
+    else
+        output=cat(2,output,extinction(i4-norder-1,:,2)',scattering(i4-norder-1,:,2)',absorption(i4-norder-1,:,2)');
+
+    end
+end
+save('C:\Users\ZWB\Documents\fll\ext_all.txt','output','-ASCII','-double');
+output=1e9*landa'*nembody;
+output=cat(2,output,back_sca,fore_sca);
+save('C:\Users\ZWB\Documents\fll\back_fore.txt','output','-ASCII','-double');
+output=1240./(1e9*landa'*nembody);
+output=cat(2,output,abs);
+save('C:\Users\ZWB\Documents\fll\abs.txt','output','-ASCII','-double');
+output=1240./(1e9*landa'*nembody);
+output=cat(2,output,sca);
+save('C:\Users\ZWB\Documents\fll\sca.txt','output','-ASCII','-double');
+output=1240./(1e9*landa'*nembody);
+output=cat(2,output,ext);
+save('C:\Users\ZWB\Documents\fll\ext.txt','output','-ASCII','-double');
